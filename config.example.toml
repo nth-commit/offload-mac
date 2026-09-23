@@ -1,0 +1,49 @@
+# offload config — keep it identical on both Macs ('offload sync-config' copies it).
+# Lives at ~/.config/offload/config.toml
+
+[offload]
+workloads  = ["docker", "llm"]   # sections below to manage, in order
+ssh_user   = "michael"           # same username on both Macs
+keep_awake = true                # caffeinate the worker while it's the worker
+gui_env    = false               # also launchctl setenv the vars, for GUI apps
+
+# Exactly two machines: one that stays home, one that travels.
+# `host` is the Tailscale (MagicDNS) name; `lan_host` its Bonjour name.
+[machine.mini]
+role     = "home"
+host     = "mini"
+lan_host = "mini.local"
+
+[machine.macbook]
+role     = "travel"
+host     = "macbook"
+lan_host = "macbook.local"
+
+# Filled in by 'offload setup' when run at home. The travel machine is home
+# if its public IP matches, or (if you're on a VPN) the router MAC does.
+[home]
+public_ip  = ""
+router_mac = ""
+
+# ------------------------------------------------------------------ workloads
+# placement: "worker"  → whichever Mac is the worker (home: macbook, away: mini)
+#            "local"   → always the Mac you're on
+#            "<name>"  → always that machine, e.g. "mini"
+# fallback:  what to do if the target is unreachable: "local" or "none"
+# module:    which modules/<module>.sh drives it (defaults to the section name),
+#            so you can have e.g. [llm] and [llm-small] both using the llm module.
+
+[docker]
+placement     = "worker"
+fallback      = "local"
+local_context = "desktop-linux"
+ports         = []               # e.g. [3000, 5173] → forwarded to localhost when remote
+stop_local    = false            # quit local Docker Desktop while offloaded
+
+[llm]
+placement   = "mini"             # always on the mini
+fallback    = "none"             # or "local" to use a local server when the mini's unreachable
+port        = 11434
+health_path = "/v1/models"
+env         = ["OLLAMA_HOST=http://{host}:{port}", "OPENAI_BASE_URL=http://{host}:{port}/v1"]
+start       = ""                 # e.g. "open -g -a Ollama" — run on the target if nothing answers

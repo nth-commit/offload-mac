@@ -1,0 +1,14 @@
+name: ci
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: macos-latest   # system bash 3.2, BSD awk/sed — same as your Macs
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: |
+          brew install shellcheck
+          shellcheck -x bin/offload lib/*.sh modules/*.sh install.sh tests/run.sh
+      - name: tests (bash 3.2)
+        run: /bin/bash tests/run.sh

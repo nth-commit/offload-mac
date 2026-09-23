@@ -1,0 +1,6 @@
+external-sources=true
+# SC2029: remote commands are meant to expand locally before being sent.
+# SC2016: single-quoted $ is intentional (eval'd checks, generated stub scripts).
+# SC2034/SC2154: variables shared across sourced files (colours, module interface).
+# SC2088: "~/.zshrc" in messages is text, not a path.
+disable=SC2029,SC2016,SC2034,SC2154,SC2088

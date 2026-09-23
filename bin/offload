@@ -187,6 +187,37 @@ cmd_mode() {
   esac
 }
 
+# offload ssh [target] [command...] — a shell on another machine, or one command
+# there. Target is "primary", "worker", a machine name, or omitted for the other
+# machine. Landing on this machine runs locally instead of SSHing to itself.
+cmd_ssh() {
+  local want target tt=""
+  load_config; detect
+  if [ $# -gt 0 ]; then want="$1"; shift; else want=other; fi
+  [ "${1:-}" = -- ] && shift
+
+  case "$want" in
+    other)   target=$(other_machine "$THIS") || die "no other machine in $OFFLOAD_CONFIG" ;;
+    primary) target="$PRIMARY" ;;
+    worker)  target="${WORKER:-}"
+             [ -n "$target" ] || die "no worker right now — mode is $MODE" ;;
+    *)       [ -n "$(cfg "machine.$want.role")" ] \
+               || die "unknown target '$want' — try primary, worker, or one of: $(machines | tr '\n' ' ')"
+             target="$want" ;;
+  esac
+
+  if [ "$target" = "$THIS" ]; then
+    info "$want is $THIS (here)"
+    if [ $# -gt 0 ]; then exec bash -c "$*"; else exec "${SHELL:-/bin/bash}" -l; fi
+  fi
+
+  # A tty for sessions and for remote programs that need one, but not when the
+  # output is being piped or redirected — that would litter it with CRs.
+  [ -t 1 ] && tt="-t"
+  # shellcheck disable=SC2086
+  exec ssh $tt $OFFLOAD_SSH_INTERACTIVE_OPTS "$(ssh_dest "$target")" "$@"
+}
+
 cmd_update() {
   local repo ref tmp
   if [ -d "$OFFLOAD_ROOT/.git" ]; then
@@ -210,6 +241,7 @@ usage: offload [command]
 
   apply            detect home/away, route each workload, write the env file (default)
   status           show where everything is and whether it's healthy
+  ssh [target]     shell on the other Mac (or: primary | worker | <machine>)
   mode [m]         show the mode, or force one: home | away | off | auto
   setup            one-time setup for this machine (identity, SSH, Docker, sleep)
   doctor           check prerequisites on this machine and the other one
@@ -226,6 +258,8 @@ EOF
 main() {
   local a cmd="" args=()
   for a in "$@"; do
+    # Everything after `offload ssh` is for the remote command, not for us.
+    if [ "$cmd" = ssh ]; then args+=("$a"); continue; fi
     case "$a" in
       -q|--quiet) OFFLOAD_QUIET=1 ;;
       -y|--yes) OFFLOAD_YES=1 ;;
@@ -237,6 +271,7 @@ main() {
   case "$cmd" in
     apply) cmd_apply ;;
     status|st) cmd_status ;;
+    ssh) cmd_ssh "$@" ;;
     resolve) cmd_resolve ;;
     mode) cmd_mode "$@" ;;
     env) cmd_env ;;

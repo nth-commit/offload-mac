@@ -142,6 +142,10 @@ with_timeout() {
 
 OFFLOAD_SSH_OPTS="-o BatchMode=yes -o ConnectTimeout=4 -o ServerAliveInterval=15 -o ServerAliveCountMax=2"
 
+# For sessions you sit in front of. BatchMode is off, so a first connection can
+# still prompt for a password or a key passphrase.
+OFFLOAD_SSH_INTERACTIVE_OPTS="-o ConnectTimeout=4 -o ServerAliveInterval=15 -o ServerAliveCountMax=3"
+
 # ssh_to <machine> <cmd...>
 ssh_to() {
   local m="$1"; shift

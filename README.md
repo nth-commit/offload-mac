@@ -76,10 +76,32 @@ Before running setup, **Tailscale must be up on both Macs**, and the machine nam
 ```sh
 offload              # detect + apply (autostart does this for you)
 offload status       # where each workload is and whether it's healthy
+offload ssh          # shell on the other Mac (also: primary | worker | <machine>)
 offload mode off     # stop offloading for now (also: home | away | auto)
 offload doctor
 offload update       # latest version (git pull if installed from a clone)
 ```
+
+### A shell on the other Mac
+
+`offload ssh` resolves the target the same way placements do, so you don't have to remember which Mac is which today.
+
+```sh
+offload ssh              # the other Mac
+offload ssh primary      # whichever Mac you work on
+offload ssh worker       # whichever Mac is doing the work
+offload ssh mini uptime  # run one command instead of a login shell
+```
+
+If the target turns out to be the Mac you're already on, it runs locally instead of SSHing to itself. A tty is allocated only when the output is a terminal, so `offload ssh worker cat log > local.txt` stays clean.
+
+**A dedicated window on the second screen.** With the MacBook doubling as a second screen at home, a Terminal window over there can be permanently pointed at the primary:
+
+1. Terminal → Settings → Profiles → duplicate a profile, call it `primary`.
+2. Its **Shell** tab → **Run command**: `offload ssh primary`, with "Run inside shell" left on, so a dropped connection leaves you at a local prompt.
+3. Terminal → Settings → **General** → **New tabs open with: Same Profile**, so Cmd-T in that window opens another session on the same Mac.
+
+Because the command is `offload ssh primary` and not `ssh mini`, the same window gives you a local shell when you're away and the MacBook is primary.
 
 New shells pick up changes automatically: the zsh hook re-reads `~/.local/state/offload/env.sh` whenever it changes. Scripts can use `OFFLOAD_CURRENT_MODE`, `OFFLOAD_PRIMARY` and `OFFLOAD_WORKER`, or `offload resolve` for machine-readable output.
 

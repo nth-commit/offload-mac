@@ -203,6 +203,32 @@ run apply
 check "second llm instance on its own port" has "$(envfile)" "export SMALL_LLM_URL='http://localhost:1234/v1'"
 pkill -f "$STUBS/caffeinate" 2>/dev/null
 
+# ---------------------------------------------------------------- ssh
+echo "ssh"
+reset; export OFFLOAD_THIS=macbook STUB_IP=203.0.113.7   # home: mini is primary
+run ssh
+check "bare 'ssh' targets the other machine" has "$STUB_LOG" "michael@mini"
+check "interactive opts, no BatchMode" hasnt "$STUB_LOG" "BatchMode=yes -o ConnectTimeout=4 -o ServerAliveInterval=15 -o ServerAliveCountMax=3"
+
+reset; export OFFLOAD_THIS=macbook STUB_IP=203.0.113.7
+run ssh primary uptime
+check "'ssh primary' at home → mini" has "$STUB_LOG" "michael@mini uptime"
+
+reset; export OFFLOAD_THIS=macbook STUB_IP=198.51.100.9  # away: macbook is primary
+run ssh worker df -h
+check "'ssh worker' away → mini" has "$STUB_LOG" "michael@mini df -h"
+check "flags after the target reach the remote command" has "$STUB_LOG" " -h"
+
+reset; export OFFLOAD_THIS=macbook STUB_IP=198.51.100.9
+run ssh primary -- true
+check "target is this machine → runs locally, no ssh" hasnt "$STUB_LOG" "ssh "
+check "local fallback says so" has "$T/stderr" "(here)"
+
+reset; export OFFLOAD_THIS=macbook STUB_IP=203.0.113.7
+run ssh nosuchmac
+check "unknown target is an error" [ $? -ne 0 ]
+check "error names the valid targets" has "$T/stderr" "primary, worker"
+
 # ---------------------------------------------------------------- curl install
 echo "curl install"
 reset

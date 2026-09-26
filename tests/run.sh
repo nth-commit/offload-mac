@@ -9,7 +9,7 @@ T=$(mktemp -d "${TMPDIR:-/tmp}/offload-test.XXXXXX")
 # Physical, normalised path: install.sh resolves its own ROOT with `cd -P`, so a
 # /var/folders (symlink to /private/var) or double-slashed $TMPDIR would never match.
 T=$(cd -P "$T" && pwd)
-trap 'pkill -f "$T/stubs/caffeinate" 2>/dev/null; rm -rf "$T"' EXIT
+trap 'pkill -f "$T/stubs/caffeinate" 2>/dev/null; pkill -f "$T/stubs/sshmaster" 2>/dev/null; rm -rf "$T"' EXIT
 STUBS="$T/stubs"; mkdir -p "$STUBS"
 PASS=0 FAIL=0
 
@@ -46,10 +46,27 @@ sock=""; prev=""; master=""
 for a in "$@"; do
   [ "$prev" = -S ] && sock="$a"; [ "$a" = -M ] && master=1; prev="$a"
 done
-if [ -n "$master" ] && [ -n "$sock" ]; then : > "$sock"; exit 0; fi
-case "$*" in *"-O exit"*) exit 0 ;; esac
+# A master holds its forwarded ports (recorded in $STUB_STATE/ports) until its
+# process exits. -O exit stops it a moment later, like the real one.
+held=$(cat "$STUB_STATE/ports" 2>/dev/null)
+if [ -n "$master" ] && [ -n "$sock" ]; then
+  if [ -n "$held" ] && kill -0 "$held" 2>/dev/null; then
+    echo "bind [127.0.0.1]:3000: Address already in use" >&2; exit 255
+  fi
+  "$(dirname "$0")/sshmaster" "$sock" </dev/null >/dev/null 2>&1 &
+  echo $! > "$STUB_STATE/ports"; echo $! > "$sock"; exit 0
+fi
+case "$*" in
+  *"-O check"*) pid=$(cat "$sock" 2>/dev/null)
+                [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null || exit 255
+                echo "Master running (pid=$pid)" >&2; exit 0 ;;
+  *"-O exit"*)  pid=$(cat "$sock" 2>/dev/null)
+                [ -n "$pid" ] && ( sleep 0.5; kill "$pid"; rm -f "$sock" ) >/dev/null 2>&1 &
+                exit 0 ;;
+esac
 for h in $STUB_SSH_OK; do case "$*" in *"@$h "*|*"@$h") exit 0 ;; esac; done
 exit 255'
+stub sshmaster  'trap "kill \$c 2>/dev/null; exit 0" TERM; sleep 300 & c=$!; wait'
 stub docker     'echo "docker $*" >> "$STUB_LOG"
 ctxdir="$STUB_STATE/ctx"; mkdir -p "$ctxdir"; [ -e "$ctxdir/desktop-linux" ] || : > "$ctxdir/desktop-linux"
 ctx=desktop-linux; [ "$1" = --context ] && { ctx="$2"; shift 2; }
@@ -173,6 +190,18 @@ sed -i.bak 's/^ports *=.*/ports = [3000, 5173]/' "$HOME/.config/offload/config.t
 run apply
 check "ports forwarded over ssh" has "$STUB_LOG" "-L 3000:localhost:3000 -L 5173:localhost:5173"
 check "tunnel socket exists" [ -e "$XDG_STATE_HOME/offload/tunnels/docker.sock" ]
+n_masters() { grep -c -- " -M " "$STUB_LOG"; }
+STUB_IP=198.51.100.9 run apply
+check "re-apply: no forwarding warning" hasnt "$T/stderr" "couldn't forward ports"
+check "re-apply: live tunnel reused, no new master" [ "$(n_masters)" -eq 1 ]
+sed -i.bak 's/^ports *=.*/ports = [3000, 8080]/' "$HOME/.config/offload/config.toml"
+STUB_IP=198.51.100.9 run apply
+check "changed ports: tunnel reopened" has "$STUB_LOG" "-L 3000:localhost:3000 -L 8080:localhost:8080"
+check "changed ports: old master gone before rebinding" hasnt "$T/stderr" "couldn't forward ports"
+pkill -f "$STUBS/sshmaster"; sleep 0.2
+STUB_IP=198.51.100.9 run apply
+check "dead master: tunnel reopened" [ "$(n_masters)" -eq 3 ]
+check "dead master: no warning" hasnt "$T/stderr" "couldn't forward ports"
 STUB_IP=203.0.113.7 run apply
 check "coming home closes the tunnel" has "$STUB_LOG" "-O exit"
 check "tunnel socket removed" [ ! -e "$XDG_STATE_HOME/offload/tunnels/docker.sock" ]

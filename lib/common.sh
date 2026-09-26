@@ -171,27 +171,63 @@ shquote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 
 # ---------------------------------------------------------------- tunnels
 #
-# Port forwards over a single SSH master connection per name.
+# Port forwards over a single SSH master connection per name. Next to the
+# control socket, <name>.spec records the destination and ports the master was
+# opened with, and <name>.pid its process ID.
 
 tunnel_sock() { printf '%s/tunnels/%s.sock\n' "$OFFLOAD_STATE_DIR" "$1"; }
 
+# _tunnel_pid <sock> <dest> — prints the master's PID if it answers on <sock>.
+_tunnel_pid() {
+  local out
+  [ -e "$1" ] || return 1
+  # shellcheck disable=SC2086
+  out=$(with_timeout 5 ssh $OFFLOAD_SSH_OPTS -S "$1" -O check "$2" 2>&1) || return 1
+  printf '%s\n' "$out" | sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p' | head -1
+}
+
 # tunnel_open <name> <machine> <port...>
+# Reuses a live master with the same destination and ports; otherwise closes it
+# and opens a new one.
 tunnel_open() {
-  local name="$1" m="$2" sock p args=""; shift 2
+  local name="$1" m="$2" sock dest spec pid p args=""; shift 2
   [ $# -gt 0 ] || return 0
   sock=$(tunnel_sock "$name")
+  dest=$(ssh_dest "$m")
+  spec="$dest $*"
   mkdir -p "$(dirname "$sock")"
+  if [ "$(cat "${sock%.sock}.spec" 2>/dev/null)" = "$spec" ] && _tunnel_pid "$sock" "$dest" >/dev/null; then
+    return 0
+  fi
   tunnel_close "$name" "$m"
   for p in "$@"; do args="$args -L $p:localhost:$p"; done
   # shellcheck disable=SC2086
-  ssh $OFFLOAD_SSH_OPTS -f -N -M -S "$sock" -o ExitOnForwardFailure=yes $args "$(ssh_dest "$m")"
+  ssh $OFFLOAD_SSH_OPTS -f -N -M -S "$sock" -o ExitOnForwardFailure=yes $args "$dest" || return 1
+  printf '%s\n' "$spec" > "${sock%.sock}.spec"
+  pid=$(_tunnel_pid "$sock" "$dest") && [ -n "$pid" ] && printf '%s\n' "$pid" > "${sock%.sock}.pid"
+  return 0
 }
 
+# tunnel_close <name> <machine> — stops the master and waits for it to exit, so
+# its forwarded ports are free when this returns.
 tunnel_close() {
-  local sock
-  sock=$(tunnel_sock "$1")
-  [ -S "$sock" ] || [ -e "$sock" ] || return 0
-  # shellcheck disable=SC2086
-  ssh $OFFLOAD_SSH_OPTS -S "$sock" -O exit "$(ssh_dest "$2")" >/dev/null 2>&1
-  rm -f "$sock"
+  local sock base dest pid i=0
+  sock=$(tunnel_sock "$1"); base="${sock%.sock}"
+  dest=$(ssh_dest "$2")
+  pid=$(_tunnel_pid "$sock" "$dest") || pid=""
+  # No answer on the socket: fall back to the recorded PID, if it's still our master.
+  if [ -z "$pid" ] && [ -r "$base.pid" ]; then
+    pid=$(cat "$base.pid")
+    ps -p "$pid" -o command= 2>/dev/null | grep -qF -- "$sock" || pid=""
+  fi
+  if [ -e "$sock" ]; then
+    # shellcheck disable=SC2086
+    ssh $OFFLOAD_SSH_OPTS -S "$sock" -O exit "$dest" >/dev/null 2>&1
+  fi
+  if [ -n "$pid" ]; then
+    # `-O exit` returns before the master has released its listeners.
+    while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 30 ]; do sleep 0.1; i=$((i + 1)); done
+    kill -0 "$pid" 2>/dev/null && kill "$pid" 2>/dev/null
+  fi
+  rm -f "$sock" "$base.spec" "$base.pid"
 }

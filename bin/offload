@@ -233,6 +233,14 @@ cmd_update() {
 
 cmd_env() { [ -r "$OFFLOAD_ENV_FILE" ] && cat "$OFFLOAD_ENV_FILE"; }
 
+# Prints the config path so it can be piped: `zed "$(offload config)"`. The path
+# is printed whether or not the file exists yet; a missing one is a warning on
+# stderr, which keeps the pipe clean.
+cmd_config() {
+  [ -r "$OFFLOAD_CONFIG" ] || warn "no config at $OFFLOAD_CONFIG yet — run install.sh, or copy config.example.toml there"
+  printf '%s\n' "$OFFLOAD_CONFIG"
+}
+
 usage() {
   cat <<EOF
 offload $OFFLOAD_VERSION — point your tools at whichever Mac should do the work
@@ -249,6 +257,7 @@ usage: offload [command]
   autostart on|off re-run apply on login and whenever the network changes
   update           update offload to the latest version
   env              print the generated env file
+  config           print the path to the config file (e.g. zed "\$(offload config)")
   resolve          machine-readable routing (for scripts)
 
 config: $OFFLOAD_CONFIG
@@ -275,6 +284,7 @@ main() {
     resolve) cmd_resolve ;;
     mode) cmd_mode "$@" ;;
     env) cmd_env ;;
+    config) cmd_config ;;
     update) if [ -n "${OFFLOAD_YES:-}" ]; then cmd_update --yes; else cmd_update; fi ;;
     setup) load_config; cmd_setup ;;
     doctor) load_config; cmd_doctor ;;

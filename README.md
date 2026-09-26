@@ -80,6 +80,7 @@ offload ssh          # shell on the other Mac (also: primary | worker | <machine
 offload mode off     # stop offloading for now (also: home | away | auto)
 offload doctor
 offload update       # latest version (git pull if installed from a clone)
+zed "$(offload config)"  # open the config in your editor
 ```
 
 ### A shell on the other Mac

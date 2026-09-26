@@ -229,6 +229,18 @@ run ssh nosuchmac
 check "unknown target is an error" [ $? -ne 0 ]
 check "error names the valid targets" has "$T/stderr" "primary, worker"
 
+# ---------------------------------------------------------------- config path
+echo "config path"
+reset
+run config > "$T/out"
+check "prints the config path on stdout" has "$T/out" "$HOME/.config/offload/config.toml"
+check "nothing else on stdout" [ "$(wc -l < "$T/out")" -eq 1 ]
+
+reset; rm -f "$HOME/.config/offload/config.toml"
+run config > "$T/out"
+check "still prints the path when there is no config" has "$T/out" "$HOME/.config/offload/config.toml"
+check "missing config warns on stderr" has "$T/stderr" "no config at"
+
 # ---------------------------------------------------------------- curl install
 echo "curl install"
 reset

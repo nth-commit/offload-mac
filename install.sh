@@ -2,7 +2,7 @@
 # Install (or update) offload on this Mac. Safe to re-run.
 #
 # Without cloning:
-#   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USER/offload/main/install.sh)"
+#   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/nth-commit/offload-mac/main/install.sh)"
 # From a clone:
 #   ./install.sh          interactive
 #   ./install.sh --yes    accept every prompt (installs missing apps too)
@@ -10,7 +10,7 @@
 set -o pipefail
 
 # Where to download from when run via curl. Override with OFFLOAD_REPO / OFFLOAD_REF.
-OFFLOAD_REPO="${OFFLOAD_REPO:-YOUR_GITHUB_USER/offload}"
+OFFLOAD_REPO="${OFFLOAD_REPO:-nth-commit/offload-mac}"
 OFFLOAD_REF="${OFFLOAD_REF:-main}"
 OFFLOAD_HOME="${OFFLOAD_HOME:-$HOME/.local/share/offload}"
 

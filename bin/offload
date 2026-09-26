@@ -1,6 +1,6 @@
 #!/bin/bash
 # offload — point your tools at whichever Mac should be doing the work.
-# https://github.com/<you>/offload   (see README.md)
+# https://github.com/nth-commit/offload-mac
 
 OFFLOAD_VERSION="0.1.0"
 

@@ -67,13 +67,14 @@ Each workload has a `placement`:
 - `local` always runs on the Mac you're on.
 - A machine name, such as `mini`, always runs on that Mac.
 
-`fallback` sets what happens when the target Mac is unreachable: `local` runs it locally, `none` turns it off.
+`fallback` sets what happens when the target Mac is unreachable: `local` runs it locally, `none` turns it off. A workload that's already running on its target stays there for `fallback_delay` seconds (default 600) before falling back. A short outage, such as the other Mac sleeping or a Tailscale blip, then doesn't switch it away and back.
 
 ### Docker notes
 
 - Bind mounts refer to paths on the worker, so your code needs to exist there too.
 - Add published ports to `ports` to have them forwarded to `localhost`.
 - Docker Desktop needs a logged-in session. Turn on automatic login on the mini.
+- Docker opens one SSH session per connection to the other Mac. If your `~/.ssh/config` gives that host a `ControlMaster`, those sessions share your master, and sshd refuses more than 10 at once (`Session open refused by peer`). With `own_ssh_master = true` (the default), offload writes an `offload-docker-<machine>` host alias with its own `ControlPath` and points the Docker context at it. `offload setup` adds the `Include` line this needs to the top of `~/.ssh/config`.
 
 ### LLM notes
 

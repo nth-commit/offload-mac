@@ -74,6 +74,7 @@ case "$1 $2" in
   "context inspect") [ -e "$ctxdir/$3" ] ;;
   "context create")  : > "$ctxdir/$3" ;;
   "context use")     echo "$3" > "$STUB_STATE/current-ctx" ;;
+  "context show")    cat "$STUB_STATE/current-ctx" 2>/dev/null || echo desktop-linux ;;
   version*) m="${ctx#offload-}"; [ "$ctx" = desktop-linux ] && m=local
             case " $STUB_DOCKER_UP " in *" $m "*) echo 27.0 ;; *) exit 1 ;; esac ;;
 esac'
@@ -102,7 +103,7 @@ has()     { grep -qF -- "$2" "$1"; }
 hasnt()   { ! grep -qF -- "$2" "$1"; }
 resolved(){ run resolve > "$T/out"; }
 envfile() { printf '%s\n' "$XDG_STATE_HOME/offload/env.sh"; }
-ctx_now() { cat "$STUB_STATE/current-ctx" 2>/dev/null; }
+ctx_now() { cat "$STUB_STATE/current-ctx" 2>/dev/null || echo desktop-linux; }
 caff_running() { pgrep -f "$STUBS/caffeinate" >/dev/null; }
 caff_stopped() { wait_gone 20; }
 wait_gone() { local i=0; while [ "$i" -lt "$1" ]; do caff_running || return 0; sleep 0.1; i=$((i + 1)); done; return 1; }
@@ -182,6 +183,58 @@ run apply
 check "mini unreachable: docker falls back to local" [ "$(ctx_now)" = desktop-linux ]
 check "mini unreachable: llm vars unset (fallback none)" has "$(envfile)" "unset OLLAMA_HOST"
 check "status line says unreachable" has "$T/stderr" "mini unreachable"
+
+# ---------------------------------------------------------------- fallback delay
+echo "fallback delay"
+reset; export OFFLOAD_THIS=macbook STUB_IP=198.51.100.9
+run apply
+check "reachable: docker → offload-mini" [ "$(ctx_now)" = offload-mini ]
+n_use() { grep -c "context use" "$STUB_LOG"; }
+STUB_IP=198.51.100.9 run apply
+check "unchanged context: no second 'context use'" [ "$(n_use)" -eq 1 ]
+STUB_SSH_OK="" STUB_IP=198.51.100.9 run apply
+check "short outage: docker stays on offload-mini" [ "$(ctx_now)" = offload-mini ]
+check "short outage: says it's keeping it" has "$T/stderr" "keeping it"
+check "short outage: target state unchanged" [ "$(cat "$XDG_STATE_HOME/offload/targets/docker")" = mini ]
+echo $(( $(date +%s) - 700 )) > "$XDG_STATE_HOME/offload/unreachable/docker"
+STUB_SSH_OK="" STUB_IP=198.51.100.9 run apply
+check "outage past fallback_delay: falls back to local" [ "$(ctx_now)" = desktop-linux ]
+STUB_IP=198.51.100.9 run apply
+check "back online: docker → offload-mini" [ "$(ctx_now)" = offload-mini ]
+check "back online: outage timer cleared" [ ! -e "$XDG_STATE_HOME/offload/unreachable/docker" ]
+pkill -f "$STUBS/caffeinate" 2>/dev/null
+
+reset; export OFFLOAD_THIS=macbook STUB_IP=198.51.100.9
+perl -pi -e 's/^(stop_local *=.*)$/$1\nfallback_delay = 0/' "$HOME/.config/offload/config.toml"
+run apply
+STUB_SSH_OK="" STUB_IP=198.51.100.9 run apply
+check "fallback_delay = 0: falls back at once" [ "$(ctx_now)" = desktop-linux ]
+
+# ---------------------------------------------------------------- docker's own ssh master
+echo "docker ssh master"
+reset; export OFFLOAD_THIS=macbook STUB_IP=198.51.100.9
+mkdir -p "$HOME/.ssh"; printf 'Host mini\n  ControlMaster auto\n' > "$HOME/.ssh/config"
+(
+  . "$ROOT/lib/common.sh"; ssh_include_add && ssh_include_add
+) ; check "ssh_include_add succeeds twice" [ $? -eq 0 ]
+check "Include is the first directive" [ "$(grep -v '^#' "$HOME/.ssh/config" | head -1)" = "Include \"$XDG_STATE_HOME/offload/ssh_config\"" ]
+check "Include added once" [ "$(grep -c '^Include' "$HOME/.ssh/config")" -eq 1 ]
+check "existing Host blocks kept" has "$HOME/.ssh/config" "Host mini"
+run apply
+sshcfg="$XDG_STATE_HOME/offload/ssh_config"
+check "alias file written" has "$sshcfg" "Host offload-docker-mini"
+check "alias points at the machine" has "$sshcfg" "HostName mini"
+check "alias has its own ControlPath" has "$sshcfg" "ControlPath ~/.ssh/cm-offload-docker-%C"
+check "context uses the alias" has "$STUB_LOG" "host=ssh://michael@offload-docker-mini"
+pkill -f "$STUBS/caffeinate" 2>/dev/null
+
+reset; export OFFLOAD_THIS=macbook STUB_IP=198.51.100.9
+mkdir -p "$HOME/.ssh"; echo "Include \"$XDG_STATE_HOME/offload/ssh_config\"" > "$HOME/.ssh/config"
+perl -pi -e 's/^own_ssh_master *=.*/own_ssh_master = false/' "$HOME/.config/offload/config.toml"
+run apply
+check "own_ssh_master = false: plain host" has "$STUB_LOG" "host=ssh://michael@mini"
+check "own_ssh_master = false: no alias in context" hasnt "$STUB_LOG" "offload-docker-mini"
+pkill -f "$STUBS/caffeinate" 2>/dev/null
 
 # ---------------------------------------------------------------- ports + switching
 echo "tunnels and switching"

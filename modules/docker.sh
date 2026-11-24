@@ -12,6 +12,8 @@
 #   ports         = [3000, 5173]     forward these to localhost when remote
 #   stop_local    = false            quit local Docker Desktop while offloaded
 #   start_timeout = 90               seconds to wait for Docker to start
+#   own_ssh_master = true            docker's SSH sessions get their own master
+#                                    (needs the Include `offload setup` adds)
 #
 # Module interface: mod_up, mod_down, mod_check, mod_env, mod_vars — all
 # optional. WORKLOAD, TARGET ("local" or a machine) and HOST are set.
@@ -30,7 +32,8 @@ _ensure_ctx() {
     warn "docker: no local context '$ctx' (set local_context in [docker])"
     return 1
   fi
-  want="ssh://$(ssh_dest "$TARGET")"
+  [ "$(wcfg own_ssh_master true)" = true ] && ssh_config_write
+  want="ssh://$(docker_ssh_dest "$TARGET" "$(wcfg own_ssh_master true)")"
   have=$(docker context inspect "$ctx" --format '{{.Endpoints.docker.Host}}' 2>/dev/null)
   if [ -z "$have" ]; then
     docker context create "$ctx" --description "offload → $TARGET" --docker "host=$want" >/dev/null
@@ -59,7 +62,11 @@ mod_up() {
     fi
   fi
 
-  docker context use "$ctx" >/dev/null || return 1
+  # Only switch when it differs: Docker Desktop restarts its listeners on every
+  # context change, and over SSH it has left the old dial-stdio sessions open.
+  if [ "$(docker context show 2>/dev/null)" != "$ctx" ]; then
+    docker context use "$ctx" >/dev/null || return 1
+  fi
 
   if ! is_local; then
     ports=$(wcfg ports)

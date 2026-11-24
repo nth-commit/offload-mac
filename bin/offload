@@ -78,23 +78,37 @@ print_header() {
 
 cmd_apply() {
   local w want target prev fb note mark vars envs all_vars="" all_env="" var val line rc
+  local now since delay hold
   load_config; detect; print_header
 
   for w in $(workloads); do
-    want=$(resolve_placement "$w"); target="$want"; note=""
+    want=$(resolve_placement "$w"); target="$want"; note=""; hold=""
+    prev=$(state_get "targets/$w")
     if [ "$target" != local ] && ! ssh_ok "$target"; then
       fb=$(cfg "$w.fallback" local)
       note="$target unreachable"
-      if [ "$fb" = local ]; then target=local; note="$note, using $THIS"; else target=none; fi
+      # A workload already on its target stays there through short outages (sleep,
+      # a Tailscale blip) for fallback_delay seconds: every switch away and back
+      # costs a docker context change and a new tunnel.
+      now=$(date +%s); since=$(state_get "unreachable/$w")
+      [ -n "$since" ] || { since=$now; state_set "unreachable/$w" "$since"; }
+      delay=$(cfg "$w.fallback_delay" 600)
+      if [ "$prev" = "$want" ] && [ $((now - since)) -lt "$delay" ]; then
+        hold=1; note="$note for $((now - since))s, keeping it for up to ${delay}s"
+      elif [ "$fb" = local ]; then target=local; note="$note, using $THIS"
+      else target=none; fi
+    else
+      rm -f "$OFFLOAD_STATE_DIR/unreachable/$w"
     fi
 
-    prev=$(state_get "targets/$w")
     if [ -n "$prev" ] && [ "$prev" != "$target" ] && [ "$prev" != none ]; then
       run_module "$w" "$prev" down
     fi
 
     mark="${_c_grn}✓${_c_off}"
-    if [ "$target" != none ]; then
+    if [ -n "$hold" ]; then
+      mark="${_c_yel}…${_c_off}"
+    elif [ "$target" != none ]; then
       run_module "$w" "$target" up; rc=$?
       if [ "$rc" -ne 0 ]; then
         mark="${_c_red}✗${_c_off}"; note="${note:+$note; }not ready"

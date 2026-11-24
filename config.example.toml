@@ -30,6 +30,8 @@ router_mac = ""
 #            "local"   → always the Mac you're on
 #            "<name>"  → always that machine, e.g. "mini"
 # fallback:  what to do if the target is unreachable: "local" or "none"
+# fallback_delay: seconds a workload already on its target stays there while
+#            the target is unreachable, before falling back (default 600)
 # module:    which modules/<module>.sh drives it (defaults to the section name),
 #            so you can have e.g. [llm] and [llm-small] both using the llm module.
 
@@ -39,6 +41,7 @@ fallback      = "local"
 local_context = "desktop-linux"
 ports         = []               # e.g. [3000, 5173] → forwarded to localhost when remote
 stop_local    = false            # quit local Docker Desktop while offloaded
+own_ssh_master = true            # docker's SSH sessions get their own master (see `offload setup`)
 
 [llm]
 placement   = "mini"             # always on the mini

@@ -84,7 +84,19 @@ cmd_setup() {
   # 6. Docker context --------------------------------------------------------
   step "6. Docker"
   if command -v docker >/dev/null 2>&1; then
-    want="ssh://$(ssh_dest "$peer")"
+    if [ "$(cfg docker.own_ssh_master true)" = true ]; then
+      ssh_config_write
+      if ssh_include_present; then ok "docker has its own SSH master (~/.ssh/config includes $OFFLOAD_SSH_CONFIG)"
+      else
+        say "  Docker opens an SSH session per connection. Sharing your own ControlMaster, it can"
+        say "  hit sshd's 10-session limit (\"Session open refused by peer\"). This adds one line"
+        say "  to the top of ~/.ssh/config: Include \"$OFFLOAD_SSH_CONFIG\""
+        if confirm "  Give docker its own SSH master?" y; then
+          ssh_include_add && ok "added the Include to ~/.ssh/config"
+        fi
+      fi
+    fi
+    want="ssh://$(docker_ssh_dest "$peer")"
     have=$(docker context inspect "offload-$peer" --format '{{.Endpoints.docker.Host}}' 2>/dev/null)
     if [ -z "$have" ]; then
       docker context create "offload-$peer" --description "offload → $peer" \
@@ -143,6 +155,9 @@ cmd_doctor() {
     v=$(ssh_to "$peer" 'command -v docker' 2>/dev/null)
     _chk "docker on PATH over SSH on $peer" '[ -n "$v" ]' "run 'offload setup' on $peer (fixes ~/.zshenv)"
     _chk "Docker engine on $peer" "with_timeout 15 docker --context offload-$peer version --format x" "is Docker Desktop running on $peer?"
+  fi
+  if [ "$(cfg docker.own_ssh_master true)" = true ]; then
+    _chk "docker has its own SSH master" 'ssh_include_present' "run 'offload setup' (adds an Include to ~/.ssh/config)"
   fi
   _chk "autostart" '[ -f "$OFFLOAD_PLIST" ]' "offload autostart on"
   if [ "$bad" -eq 0 ]; then ok "all good"; else say "$bad issue(s)"; fi
